@@ -48,8 +48,22 @@ class WebPlayerBridge private constructor(
 
     suspend fun ensureReady() {
         mutex.withLock {
-            if (webView == null) {
-                withContext(Dispatchers.Main) { createWebViewLocked() }
+            withContext(Dispatchers.Main) {
+                // After invalidate(), WebView may still exist but pageReady was cleared —
+                // recreate so onPageFinished can complete the new signal (avoids 60s hang).
+                if (webView != null && !pageReady) {
+                    runCatching {
+                        webView?.stopLoading()
+                        webView?.destroy()
+                    }
+                    webView = null
+                }
+                if (webView == null) {
+                    if (pageReadySignal.isCompleted) {
+                        pageReadySignal = CompletableDeferred()
+                    }
+                    createWebViewLocked()
+                }
             }
         }
         withTimeout(60_000) { pageReadySignal.await() }
@@ -132,10 +146,14 @@ class WebPlayerBridge private constructor(
         accessToken.set(null)
         clientToken.set(null)
         pageReady = false
-        if (pageReadySignal.isCompleted) {
-            pageReadySignal = CompletableDeferred()
+        val oldSignal = pageReadySignal
+        pageReadySignal = CompletableDeferred()
+        if (!oldSignal.isCompleted) {
+            oldSignal.completeExceptionally(
+                IllegalStateException("Spotify WebView session reset — retry"),
+            )
         }
-        // Don't auto-load /collection here — that SPA burst is a common fresh-429 cause
+        // Stop in-flight loads; ensureReady() tears down + recreates when !pageReady
         main.post {
             webView?.stopLoading()
         }
@@ -143,12 +161,15 @@ class WebPlayerBridge private constructor(
 
     fun destroy() {
         main.post {
-            webView?.apply {
-                stopLoading()
-                destroy()
+            runCatching {
+                webView?.stopLoading()
+                webView?.destroy()
             }
             webView = null
             pageReady = false
+            if (pageReadySignal.isCompleted) {
+                pageReadySignal = CompletableDeferred()
+            }
         }
     }
 

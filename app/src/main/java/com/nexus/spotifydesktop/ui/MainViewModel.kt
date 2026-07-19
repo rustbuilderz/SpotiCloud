@@ -93,6 +93,7 @@ data class UiState(
     val needsSetup: Boolean = false,
     val setupStep: SetupStep = SetupStep.Welcome,
     val spotifyClientId: String = "",
+    val spotifyClientSecret: String = "",
 )
 
 /** Web session for library/search/likes; App Remote for Spotify playback. */
@@ -159,24 +160,38 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
             needsSetup = computeNeedsSetup(),
             setupStep = when {
                 !secrets.setupAgreed -> SetupStep.Welcome
-                !tokenStore.hasSession -> SetupStep.Spotify
+                !tokenStore.hasSession || !secrets.hasSpotifyPlaybackCreds -> SetupStep.Spotify
                 !scStore.hasSession -> SetupStep.SoundCloud
                 else -> SetupStep.Welcome
             },
             spotifyClientId = secrets.spotifyClientId.orEmpty(),
+            spotifyClientSecret = secrets.spotifyClientSecret.orEmpty(),
         ),
     )
     val state: StateFlow<UiState> = _state.asStateFlow()
 
     private fun computeNeedsSetup(): Boolean {
         // Existing installs already signed into both — skip wizard once.
-        if (!secrets.setupComplete && tokenStore.hasSession && scStore.hasSession) {
+        if (!secrets.setupComplete &&
+            tokenStore.hasSession &&
+            scStore.hasSession &&
+            secrets.hasSpotifyPlaybackCreds
+        ) {
             secrets.setupComplete = true
             secrets.setupAgreed = true
             return false
         }
-        if (secrets.setupComplete && tokenStore.hasSession && scStore.hasSession) return false
-        return !secrets.setupComplete || !tokenStore.hasSession || !scStore.hasSession
+        if (secrets.setupComplete &&
+            tokenStore.hasSession &&
+            scStore.hasSession &&
+            secrets.hasSpotifyPlaybackCreds
+        ) {
+            return false
+        }
+        return !secrets.setupComplete ||
+            !tokenStore.hasSession ||
+            !scStore.hasSession ||
+            !secrets.hasSpotifyPlaybackCreds
     }
 
     fun agreeAndStartSetup() {
@@ -190,24 +205,50 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
         }
     }
 
-    fun saveSpotifyClientId(raw: String) {
-        secrets.spotifyClientId = raw.trim().ifBlank { null }
+    fun saveSpotifyPlaybackCreds(clientId: String, clientSecret: String) {
+        secrets.spotifyClientId = clientId.trim().ifBlank { null }
+        secrets.spotifyClientSecret = clientSecret.trim().ifBlank { null }
         _state.update {
             it.copy(
                 spotifyClientId = secrets.spotifyClientId.orEmpty(),
-                status = if (secrets.spotifyClientId != null) "Client ID saved" else "Client ID cleared",
+                spotifyClientSecret = secrets.spotifyClientSecret.orEmpty(),
+                status = if (secrets.hasSpotifyPlaybackCreds) {
+                    "Spotify Client ID + Secret saved"
+                } else {
+                    "Client ID and Secret are both required"
+                },
+                error = if (secrets.hasSpotifyPlaybackCreds) {
+                    null
+                } else {
+                    "Client ID and Client Secret are both required for playback"
+                },
             )
         }
         console(
             ConsoleLevel.Ok,
             "Spotify",
-            if (secrets.spotifyClientId != null) "Client ID saved on device" else "Client ID cleared",
+            if (secrets.hasSpotifyPlaybackCreds) {
+                "Playback creds saved on device"
+            } else {
+                "Playback creds incomplete"
+            },
         )
+    }
+
+    /** @deprecated Prefer [saveSpotifyPlaybackCreds] */
+    fun saveSpotifyClientId(raw: String) {
+        saveSpotifyPlaybackCreds(raw, secrets.spotifyClientSecret.orEmpty())
     }
 
     fun continueSetupFromSpotify() {
         if (!tokenStore.hasSession) {
             _state.update { it.copy(error = "Sign in with Spotify first") }
+            return
+        }
+        if (!secrets.hasSpotifyPlaybackCreds) {
+            _state.update {
+                it.copy(error = "Client ID and Client Secret are required for Spotify playback")
+            }
             return
         }
         _state.update {
@@ -218,6 +259,15 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
     fun finishSetup() {
         if (!tokenStore.hasSession) {
             _state.update { it.copy(error = "Spotify login required", setupStep = SetupStep.Spotify) }
+            return
+        }
+        if (!secrets.hasSpotifyPlaybackCreds) {
+            _state.update {
+                it.copy(
+                    error = "Client ID and Client Secret are required for playback",
+                    setupStep = SetupStep.Spotify,
+                )
+            }
             return
         }
         if (!scStore.hasSession) {
@@ -256,12 +306,13 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
         api.invalidateClientToken()
         api.clearRateLimit()
         secrets.clearSetupFlags()
-        // Keep Spotify Dashboard Client ID — not a login; clear sessions only.
+        // Keep Spotify Dashboard Client ID + Secret — not a login; clear sessions only.
         _state.value = UiState(
             volume = systemVolume.getNormalized(),
             needsSetup = true,
             setupStep = SetupStep.Welcome,
             spotifyClientId = secrets.spotifyClientId.orEmpty(),
+            spotifyClientSecret = secrets.spotifyClientSecret.orEmpty(),
             scLikeMode = scStore.likeMode,
             status = "Re-setup · sign in again",
         )
@@ -273,6 +324,7 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
             it.copy(
                 needsSetup = computeNeedsSetup(),
                 spotifyClientId = secrets.spotifyClientId.orEmpty(),
+                spotifyClientSecret = secrets.spotifyClientSecret.orEmpty(),
                 scAuthed = scStore.hasSession,
                 scClientId = scStore.clientId.orEmpty(),
                 scUserName = scStore.userName.orEmpty(),
@@ -445,15 +497,20 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
                 showWebLogin = false,
                 authed = true,
                 error = null,
-                status = "Loading Spotify session…",
+                status = "Spotify signed in",
                 userName = tokenStore.userName.orEmpty(),
+                libraryLoading = false,
             )
         }
         refreshNeedsSetup()
-        if (_state.value.needsSetup && _state.value.setupStep == SetupStep.Spotify) {
-            // stay on Spotify step until they tap Continue
+        // During setup / re-setup: don't block on WebView library sync (was hanging 60s
+        // after invalidate). Soft-start only; user can Refresh library later.
+        if (_state.value.needsSetup) {
+            softStartSpotify()
+            console(ConsoleLevel.Ok, "Spotify", "Signed in · continue setup")
+        } else {
+            refreshSession(forceNetwork = true)
         }
-        refreshSession(forceNetwork = true)
     }
 
     fun onAuthError(message: String) {
@@ -478,6 +535,7 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
             needsSetup = true,
             setupStep = SetupStep.Spotify,
             spotifyClientId = secrets.spotifyClientId.orEmpty(),
+            spotifyClientSecret = secrets.spotifyClientSecret.orEmpty(),
         )
         secrets.setupComplete = false
     }
@@ -512,6 +570,7 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
             "Android" to "${Build.VERSION.RELEASE} (API ${Build.VERSION.SDK_INT})",
             "Device" to "${Build.MANUFACTURER} ${Build.MODEL}",
             "Spotify Client ID" to if (secrets.spotifyClientId != null) "Saved on device" else "Not set",
+            "Spotify Client Secret" to if (secrets.spotifyClientSecret != null) "Saved on device" else "Not set",
             "Spotify session" to if (tokenStore.hasSession) "Signed in" else "Signed out",
             "User" to (tokenStore.userName ?: "—"),
             "App Remote" to if (appRemote.isConfigured) {
@@ -1164,7 +1223,13 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
                 )
                 if (!warning.isNullOrBlank()) consoleAuto("Spotify", warning, isError = true)
                 // No /me/tracks — that endpoint 429s hard.
-            } catch (e: Exception) {
+            } catch (e: Throwable) {
+                // withTimeout throws TimeoutCancellationException (a CancellationException)
+                if (e is kotlinx.coroutines.CancellationException &&
+                    e !is kotlinx.coroutines.TimeoutCancellationException
+                ) {
+                    throw e
+                }
                 val msg = e.message.orEmpty().ifBlank { "Library load failed" }
                 if (isAuthFailure(msg)) {
                     tokenStore.clear()
@@ -1208,34 +1273,45 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
         publishHomeMergedLikes()
     }
 
-    // SC likes: cache → head(50) → keep if match else save head.
+    // SC likes: cache → probe first song only → keep cache if match, else refresh page.
     private suspend fun syncSoundCloudLikes(updateTab: Boolean) {
         val cached = likedCache.loadSoundCloud()
+        if (cached != null && cached.tracks.isNotEmpty()) {
+            scLikedIds.clear()
+            scLikedIds.addAll(cached.tracks.map { it.id })
+            applyHomeScLikes(cached.tracks)
+            if (updateTab) {
+                _state.update {
+                    it.copy(
+                        scTracks = cached.tracks,
+                        scLoading = false,
+                        scStatus = "Liked · cached ${cached.tracks.size}",
+                        scSection = ScBrowseSection.Liked,
+                        scError = null,
+                    )
+                }
+            }
+            val probe = runCatching { scApi.getLikedTracks(1) }.getOrNull()
+            if (probe != null &&
+                LikedLibraryCache.headMatches(cached.tracks, probe.items) { it.id.toString() }
+            ) {
+                console(ConsoleLevel.Ok, "Cache", "SoundCloud liked unchanged · skip (first song match)")
+                return
+            }
+            if (probe == null) {
+                console(
+                    ConsoleLevel.Warn,
+                    "Cache",
+                    "SoundCloud head probe failed · keeping disk (${cached.tracks.size})",
+                )
+                return
+            }
+            console(ConsoleLevel.Info, "Cache", "SoundCloud liked changed · refreshing…")
+        }
+
         runCatching { scApi.getLikedTracks(50) }
             .onSuccess { page ->
                 val remote = page.items
-                val match = cached != null &&
-                    LikedLibraryCache.headMatches(cached.tracks, remote) { it.id.toString() }
-                if (match) {
-                    val hit = cached!!
-                    console(ConsoleLevel.Ok, "Cache", "SoundCloud liked unchanged · skip")
-                    scLikedIds.clear()
-                    scLikedIds.addAll(hit.tracks.map { it.id })
-                    applyHomeScLikes(hit.tracks)
-                    if (updateTab) {
-                        _state.update {
-                            it.copy(
-                                scTracks = hit.tracks,
-                                scLoading = false,
-                                scStatus = "Liked · ${hit.tracks.size} (cached)",
-                                scSection = ScBrowseSection.Liked,
-                                scError = null,
-                            )
-                        }
-                    }
-                    return@onSuccess
-                }
-                // No cache or head differs — use this page (by-50) and persist
                 likedCache.saveSoundCloud(remote)
                 scLikedIds.clear()
                 scLikedIds.addAll(remote.map { it.id })
@@ -1244,7 +1320,7 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
                     ConsoleLevel.Ok,
                     "Cache",
                     if (cached == null) "SoundCloud liked · cached ${remote.size}"
-                    else "SoundCloud liked changed · updated ${remote.size}",
+                    else "SoundCloud liked updated · ${remote.size}",
                 )
                 if (updateTab) {
                     _state.update {
@@ -1383,50 +1459,39 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
         }
     }
 
-    // Liked via Pathfinder: disk → head(50) → full page if mismatch.
+    // Liked via Pathfinder: disk → probe first song → full page only if mismatch.
     private suspend fun syncSpotifyLikedFull(gen: Int, onPage: (List<TrackItem>) -> Unit): List<TrackItem> {
         val cached = likedCache.loadSpotify()
         if (cached != null && cached.tracks.isNotEmpty()) {
             onPage(cached.tracks)
             setHomeLikedPreview(cached.tracks)
-        }
 
-        console(ConsoleLevel.Info, "Spotify", "Liked walkthrough · Pathfinder head…")
-        val head = try {
-            api.likedTracksPreview(50)
-        } catch (e: Exception) {
-            if (cached != null && cached.tracks.isNotEmpty()) {
+            console(ConsoleLevel.Info, "Spotify", "Liked · probe first song…")
+            val head = try {
+                api.likedTracksPreview(1)
+            } catch (e: Exception) {
                 console(
                     ConsoleLevel.Warn,
                     "Cache",
-                    "Head check failed · keeping disk (${cached.tracks.size})",
+                    "Head probe failed · keeping disk (${cached.tracks.size})",
                 )
                 return cached.tracks
             }
-            throw e
-        }
-        if (gen != loadGen) return cached?.tracks.orEmpty()
+            if (gen != loadGen) return cached.tracks
 
-        val match = cached != null &&
-            LikedLibraryCache.headMatches(cached.tracks, head) { it.id }
-        if (match) {
-            console(
-                ConsoleLevel.Ok,
-                "Cache",
-                "Spotify liked unchanged · skip full fetch (${cached!!.tracks.size})",
-            )
-            onPage(cached.tracks)
-            setHomeLikedPreview(cached.tracks)
-            return cached.tracks
+            if (LikedLibraryCache.headMatches(cached.tracks, head) { it.id }) {
+                console(
+                    ConsoleLevel.Ok,
+                    "Cache",
+                    "Spotify liked unchanged · skip full fetch (${cached.tracks.size})",
+                )
+                return cached.tracks
+            }
+            console(ConsoleLevel.Info, "Spotify", "Liked changed · Pathfinder full refresh…")
+        } else {
+            console(ConsoleLevel.Info, "Spotify", "No song cache · Pathfinder full liked…")
         }
 
-        // Head differs or no cache — page full list via Pathfinder
-        console(
-            ConsoleLevel.Info,
-            "Spotify",
-            if (cached == null) "No song cache · Pathfinder full liked…"
-            else "Liked changed · Pathfinder full refresh…",
-        )
         val tracks = api.likedTracksProgressive { partial ->
             if (gen != loadGen) return@likedTracksProgressive
             onPage(partial)
@@ -1452,9 +1517,9 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
     // Optional Dev OAuth Liked Songs path (separate from web session).
     fun refreshSongsWithDeveloperToken(activity: android.app.Activity) {
         val cid = secrets.spotifyClientId.orEmpty()
-        if (cid.isBlank()) {
-            console(ConsoleLevel.Error, "Spotify", "Add Spotify Client ID in Setup / Settings first")
-            _state.update { it.copy(error = "Missing Developer Client ID — add it in Settings") }
+        if (cid.isBlank() || !secrets.hasSpotifyPlaybackCreds) {
+            console(ConsoleLevel.Error, "Spotify", "Add Spotify Client ID + Secret in Setup / Settings first")
+            _state.update { it.copy(error = "Missing Client ID + Secret — add them in Settings") }
             return
         }
         viewModelScope.launch {
@@ -1505,6 +1570,7 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
                     clientId = secrets.spotifyClientId.orEmpty(),
                     code = code,
                     codeVerifier = verifier,
+                    clientSecret = secrets.spotifyClientSecret,
                 )
                 tokenStore.saveOauthTokens(
                     access = tokens.accessToken,
@@ -1529,7 +1595,7 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
         console(ConsoleLevel.Info, "Spotify", "Refreshing Developer token…")
         val cid = secrets.spotifyClientId.orEmpty()
         if (cid.isBlank()) error("Add Spotify Client ID in Settings")
-        val tokens = TokenExchanger.refresh(cid, refresh)
+        val tokens = TokenExchanger.refresh(cid, refresh, secrets.spotifyClientSecret)
         tokenStore.saveOauthTokens(
             access = tokens.accessToken,
             refresh = tokens.refreshToken ?: refresh,

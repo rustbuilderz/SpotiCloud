@@ -20,6 +20,7 @@ object TokenExchanger {
         clientId: String,
         code: String,
         codeVerifier: String,
+        clientSecret: String? = null,
     ): TokenResponse = withContext(Dispatchers.IO) {
         val body = FormBody.Builder()
             .add("client_id", clientId.trim())
@@ -27,18 +28,22 @@ object TokenExchanger {
             .add("code", code)
             .add("redirect_uri", DevOAuth.REDIRECT_URI)
             .add("code_verifier", codeVerifier)
-            .build()
-        postToken(body)
+        clientSecret?.trim()?.takeIf { it.isNotBlank() }?.let { body.add("client_secret", it) }
+        postToken(body.build())
     }
 
-    suspend fun refresh(clientId: String, refreshToken: String): TokenResponse =
+    suspend fun refresh(
+        clientId: String,
+        refreshToken: String,
+        clientSecret: String? = null,
+    ): TokenResponse =
         withContext(Dispatchers.IO) {
             val body = FormBody.Builder()
                 .add("client_id", clientId.trim())
                 .add("grant_type", "refresh_token")
                 .add("refresh_token", refreshToken)
-                .build()
-            postToken(body)
+            clientSecret?.trim()?.takeIf { it.isNotBlank() }?.let { body.add("client_secret", it) }
+            postToken(body.build())
         }
 
     private fun postToken(body: FormBody): TokenResponse {

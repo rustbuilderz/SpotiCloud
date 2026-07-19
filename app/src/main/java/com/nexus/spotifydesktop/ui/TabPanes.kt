@@ -1266,6 +1266,7 @@ fun SettingsPane(
     scLikeMode: ScLikeMode,
     consoleLines: List<ConsoleLine>,
     spotifyClientId: String,
+    spotifyClientSecret: String = "",
     onLogout: () -> Unit,
     onRefresh: () -> Unit,
     onRefreshLikedSongs: () -> Unit,
@@ -1277,7 +1278,7 @@ fun SettingsPane(
     onScRefreshClientId: () -> Unit,
     onScManualConnect: (oauth: String, clientId: String?) -> Unit,
     onScLikeMode: (ScLikeMode) -> Unit,
-    onSaveSpotifyClientId: (String) -> Unit,
+    onSaveSpotifyPlaybackCreds: (clientId: String, clientSecret: String) -> Unit,
     onResetup: () -> Unit,
 ) {
     var showDetails by remember { mutableStateOf(false) }
@@ -1286,6 +1287,7 @@ fun SettingsPane(
     var oauthDraft by rememberSaveable { mutableStateOf("") }
     var clientIdDraft by rememberSaveable { mutableStateOf("") }
     var spotifyCidDraft by rememberSaveable(spotifyClientId) { mutableStateOf(spotifyClientId) }
+    var spotifySecretDraft by rememberSaveable(spotifyClientSecret) { mutableStateOf(spotifyClientSecret) }
 
     if (showConsole) {
         ConsolePane(
@@ -1314,7 +1316,7 @@ fun SettingsPane(
         }
         item {
             Text(
-                "Client ID is stored on this device only (not in the APK).",
+                "Client ID + Secret are required for Spotify playback. Stored on this device only.",
                 style = MaterialTheme.typography.bodySmall,
             )
             Spacer(Modifier.height(8.dp))
@@ -1323,14 +1325,24 @@ fun SettingsPane(
                 onValueChange = { spotifyCidDraft = it },
                 modifier = Modifier.fillMaxWidth(),
                 singleLine = true,
-                label = { Text("Spotify Client ID (optional)") },
+                label = { Text("Spotify Client ID") },
+            )
+            Spacer(Modifier.height(8.dp))
+            OutlinedTextField(
+                value = spotifySecretDraft,
+                onValueChange = { spotifySecretDraft = it },
+                modifier = Modifier.fillMaxWidth(),
+                singleLine = true,
+                label = { Text("Spotify Client Secret") },
+                visualTransformation = androidx.compose.ui.text.input.PasswordVisualTransformation(),
             )
             Spacer(Modifier.height(8.dp))
             OutlinedButton(
-                onClick = { onSaveSpotifyClientId(spotifyCidDraft) },
+                onClick = { onSaveSpotifyPlaybackCreds(spotifyCidDraft, spotifySecretDraft) },
+                enabled = spotifyCidDraft.isNotBlank() && spotifySecretDraft.isNotBlank(),
                 modifier = Modifier.fillMaxWidth(),
             ) {
-                Text("Save Client ID")
+                Text("Save Client ID + Secret")
             }
         }
         item {

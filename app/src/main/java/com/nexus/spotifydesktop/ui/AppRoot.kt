@@ -134,10 +134,11 @@ fun AppRoot(
             soundCloudAuthed = state.scAuthed,
             soundCloudUserName = state.scUserName,
             spotifyClientId = state.spotifyClientId,
+            spotifyClientSecret = state.spotifyClientSecret,
             scLoading = state.scLoading,
             error = state.error ?: state.scError,
             onAgreeAndStart = viewModel::agreeAndStartSetup,
-            onSaveSpotifyClientId = viewModel::saveSpotifyClientId,
+            onSaveSpotifyPlaybackCreds = viewModel::saveSpotifyPlaybackCreds,
             onSpotifyLogin = viewModel::startWebLogin,
             onContinueFromSpotify = viewModel::continueSetupFromSpotify,
             onConnectSoundCloud = { oauth, cid ->
@@ -326,6 +327,7 @@ fun AppRoot(
                                 scLikeMode = state.scLikeMode,
                                 consoleLines = state.consoleLines,
                                 spotifyClientId = state.spotifyClientId,
+                                spotifyClientSecret = state.spotifyClientSecret,
                                 onLogout = viewModel::logout,
                                 onRefresh = viewModel::retryLibrary,
                                 onRefreshLikedSongs = viewModel::forceRefreshLikedSongs,
@@ -337,7 +339,7 @@ fun AppRoot(
                                 onScRefreshClientId = viewModel::refreshScClientId,
                                 onScManualConnect = viewModel::connectSoundCloudManual,
                                 onScLikeMode = viewModel::setScLikeMode,
-                                onSaveSpotifyClientId = viewModel::saveSpotifyClientId,
+                                onSaveSpotifyPlaybackCreds = viewModel::saveSpotifyPlaybackCreds,
                                 onResetup = viewModel::startResetup,
                             )
 

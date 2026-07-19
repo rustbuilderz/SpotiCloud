@@ -15,6 +15,16 @@ class AppSecretsStore(context: Context) {
             putString(KEY_SPOTIFY_CID, value?.trim().orEmpty())
         }
 
+    var spotifyClientSecret: String?
+        get() = prefs.getString(KEY_SPOTIFY_SECRET, null)?.trim()?.takeIf { it.isNotBlank() }
+        set(value) = prefs.edit {
+            putString(KEY_SPOTIFY_SECRET, value?.trim().orEmpty())
+        }
+
+    /** Dashboard Client ID + Secret required for App Remote / Dev OAuth playback path. */
+    val hasSpotifyPlaybackCreds: Boolean
+        get() = !spotifyClientId.isNullOrBlank() && !spotifyClientSecret.isNullOrBlank()
+
     var setupAgreed: Boolean
         get() = prefs.getBoolean(KEY_SETUP_AGREED, false)
         set(value) = prefs.edit { putBoolean(KEY_SETUP_AGREED, value) }
@@ -32,6 +42,7 @@ class AppSecretsStore(context: Context) {
 
     companion object {
         private const val KEY_SPOTIFY_CID = "spotify_client_id"
+        private const val KEY_SPOTIFY_SECRET = "spotify_client_secret"
         private const val KEY_SETUP_AGREED = "setup_agreed"
         private const val KEY_SETUP_COMPLETE = "setup_complete"
     }

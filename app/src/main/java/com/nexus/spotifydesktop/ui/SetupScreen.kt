@@ -1,7 +1,6 @@
 package com.nexus.spotifydesktop.ui
 
 import androidx.compose.foundation.background
-import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
@@ -21,7 +20,6 @@ import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Checkbox
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextFieldDefaults
@@ -33,6 +31,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.unit.dp
 import com.nexus.spotifydesktop.ui.theme.SpotiCloudColors
 
@@ -46,10 +45,11 @@ fun SetupScreen(
     soundCloudAuthed: Boolean,
     soundCloudUserName: String,
     spotifyClientId: String,
+    spotifyClientSecret: String,
     scLoading: Boolean,
     error: String?,
     onAgreeAndStart: () -> Unit,
-    onSaveSpotifyClientId: (String) -> Unit,
+    onSaveSpotifyPlaybackCreds: (clientId: String, clientSecret: String) -> Unit,
     onSpotifyLogin: () -> Unit,
     onContinueFromSpotify: () -> Unit,
     onConnectSoundCloud: (oauth: String, clientId: String) -> Unit,
@@ -73,8 +73,9 @@ fun SetupScreen(
                 authed = spotifyAuthed,
                 userName = spotifyUserName,
                 clientId = spotifyClientId,
+                clientSecret = spotifyClientSecret,
                 error = error,
-                onSaveClientId = onSaveSpotifyClientId,
+                onSaveCreds = onSaveSpotifyPlaybackCreds,
                 onLogin = onSpotifyLogin,
                 onContinue = onContinueFromSpotify,
             )
@@ -137,12 +138,15 @@ private fun SpotifySetupStep(
     authed: Boolean,
     userName: String,
     clientId: String,
+    clientSecret: String,
     error: String?,
-    onSaveClientId: (String) -> Unit,
+    onSaveCreds: (clientId: String, clientSecret: String) -> Unit,
     onLogin: () -> Unit,
     onContinue: () -> Unit,
 ) {
     var cidDraft by rememberSaveable(clientId) { mutableStateOf(clientId) }
+    var secretDraft by rememberSaveable(clientSecret) { mutableStateOf(clientSecret) }
+    val credsReady = cidDraft.isNotBlank() && secretDraft.isNotBlank()
 
     Text("Spotify", style = MaterialTheme.typography.titleLarge)
     Spacer(Modifier.height(8.dp))
@@ -165,10 +169,11 @@ private fun SpotifySetupStep(
     }
 
     Spacer(Modifier.height(20.dp))
-    Text("Optional · Developer Client ID", style = MaterialTheme.typography.titleSmall)
+    Text("Required · Dashboard Client ID + Secret", style = MaterialTheme.typography.titleSmall)
     Text(
-        "Only needed for App Remote playback / optional Dev token features. " +
-            "Paste your Spotify Dashboard Client ID if you have one.",
+        "Create an app at developer.spotify.com/dashboard. " +
+            "Client ID + Secret are required for Spotify playback (App Remote). " +
+            "Stored on this device only.",
         style = MaterialTheme.typography.bodySmall,
         color = MaterialTheme.colorScheme.onSurfaceVariant,
     )
@@ -178,16 +183,19 @@ private fun SpotifySetupStep(
         onValueChange = { cidDraft = it },
         modifier = Modifier.fillMaxWidth(),
         singleLine = true,
-        label = { Text("Spotify Client ID (optional)") },
+        label = { Text("Client ID") },
         colors = setupFieldColors(),
     )
     Spacer(Modifier.height(8.dp))
-    OutlinedButton(
-        onClick = { onSaveClientId(cidDraft) },
+    OutlinedTextField(
+        value = secretDraft,
+        onValueChange = { secretDraft = it },
         modifier = Modifier.fillMaxWidth(),
-    ) {
-        Text("Save Client ID")
-    }
+        singleLine = true,
+        label = { Text("Client Secret") },
+        visualTransformation = PasswordVisualTransformation(),
+        colors = setupFieldColors(),
+    )
 
     error?.let {
         Spacer(Modifier.height(12.dp))
@@ -197,15 +205,21 @@ private fun SpotifySetupStep(
     Spacer(Modifier.height(24.dp))
     Button(
         onClick = {
-            onSaveClientId(cidDraft)
+            onSaveCreds(cidDraft, secretDraft)
             onContinue()
         },
-        enabled = authed,
+        enabled = authed && credsReady,
         modifier = Modifier.fillMaxWidth().height(48.dp),
         shape = RoundedCornerShape(24.dp),
         colors = ButtonDefaults.buttonColors(containerColor = SpotiCloudColors.SpotifyGreen),
     ) {
-        Text(if (authed) "Continue to SoundCloud" else "Sign in first")
+        Text(
+            when {
+                !authed -> "Sign in first"
+                !credsReady -> "Enter Client ID + Secret"
+                else -> "Continue to SoundCloud"
+            },
+        )
     }
 }
 
