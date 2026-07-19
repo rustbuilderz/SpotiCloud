@@ -1,0 +1,5 @@
+## Copy to local.properties (Android Studio usually creates this)
+## sdk.dir=C\:\\Users\\YOUR_USER\\AppData\\Local\\Android\\Sdk
+##
+## Spotify Client ID / SoundCloud tokens are entered in-app (Settings / Setup)
+## and stored on-device — do not put secrets here.
