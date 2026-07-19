@@ -1,6 +1,7 @@
 # SpotiCloud
 
 SpotiCloud is an Android APK that puts **Spotify** and **SoundCloud** in one app. Spotify playback needs **Premium** plus the **Spotify app** on the phone. SoundCloud plays in-app.
+This was inspired by the [SpiceCloud](https://github.com/5djr/SpiceCloud) repo by [5djr](https://github.com/5djr), and is a terrible reimagination of it on phone so go check that out for PC
 
 ![Screenshot](images/screenshot.png)
 
@@ -76,7 +77,7 @@ flowchart TB
 
 ### Releases
 
-If you publish builds on GitHub: **[Releases](../../releases)** — download the latest APK and install (allow unknown sources).
+published builds on GitHub: **[Releases](../../releases)** — download the latest APK and install (allow unknown sources).
 
 ### Build from source
 
